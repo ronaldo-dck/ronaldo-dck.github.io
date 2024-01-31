@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/sortablejs@1.14.0/Sortable.min.js"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+
+    <style>
+        #telaDeDesenho {
+            border: solid;
+            width: 800px;
+            height: 600px;
+            overflow: scroll;
+        }
+
+        .listTriangulos {
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-left: 1%;
+            margin-top: 20px;
+            min-height: 350px;
+            max-height: 350px;
+            overflow-y: auto;
+
+        }
+
+        .inputColor {
+            border: none;
+            justify-content: space-between;
+            padding-left: 1%;
+            padding-right: 1%;
+        }
+
+        #triangulos-list {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #triangulos-list li {
+            padding: 2px;
+            background-color: #c6c5c5;
+            margin-bottom: 5px;
+        }
+
+        .listTriangulos button {
+            margin-right: 10px;
+        }
+
+        .painelOfTools {
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .selected {
+            background-color: #121111;
+            font-weight: bold;
+        }
+    </style>
+
+    <title>Fill Poly</title>
+</head>
+
+<body style="padding: 10px;" onload="atualizarListaTriangulos()">
+
+    <div class="conteiner d-flex">
+        <div>
+            <canvas width="800" height="600" id="telaDeDesenho"></canvas>
+            <p id="pos"></p>
+        </div>
+        <div class="painelOfTools">
+            <div class="container">
+                <div id="currentTriangulo" class="border p-3">
+                    <div class="d-flex">
+                        <p id="nameTriangulo"> Desenhe um Triangulo</p>
+                    </div>
+
+                    <div class="form-groupv d-flex inputColor">
+                        <label for="v1">Vértice 1:</label>
+                        <input type="color" class="" onchange="updateColorsOfSelected()" value="#ABABAB" id="v1">
+                    </div>
+
+                    <div class="d-flex form-groupv d-flex inputColor">
+                        <label for="v2">Vértice 2:</label>
+                        <input type="color" class="" onchange="updateColorsOfSelected()" value="#ABABAB" id="v2">
+                    </div>
+
+                    <div class="form-groupv d-flex inputColor">
+                        <label for="v3">Vértice 3:</label>
+                        <input type="color" class="" onchange="updateColorsOfSelected()" value="#ABABAB" id="v3">
+                    </div>
+
+                    <div class="form-groupv d-flex inputColor">
+                        <label for="aresta">Cor da Aresta:</label>
+                        <input type="color" class="" onchange="updateColorsOfSelected()" value="#ABABAB" id="aresta">
+                    </div>
+
+                    <span hidden id="idTriangulo"></span>
+
+                    <div class="d-flex justify-content-end">
+                        <button id="delete-triangulo" class="btn btn-danger" onclick="deleteTriangulo(this)"
+                            type="button">Deletar</button>
+                    </div>
+
+                </div>
+            </div>
+            <div class=" listTriangulos">
+                <ul id="triangulos-list"></ul>
+            </div>
+
+            <div class="m-1">
+                <button class="btn btn-primary" onclick="atualizarListaTriangulos()">Atualizar Lista</button>
+                <button class="btn btn-danger" onclick="deleteAllTriangulos()">Limpar Tela</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        class Vertice {
+            constructor(_x, _y, _color) {
+                this.x = _x;
+                this.y = _y;
+                this.color = _color;
+                this.RGB = hexToRgb(_color)
+            };
+            atualizarCorNova(_novaCor) {
+                this.color = _novaCor;
+                this.RGB = hexToRgb(_novaCor);
+            }
+        }
+
+        class Triangulo {
+            constructor(id, name) {
+                this.name = name
+                this.id = id;
+                this.vertices = [];
+                this.arestas = [];
+                this.arestaColor = '#000000';
+            }
+        }
+
+        class Edge {
+            constructor(V1, V2) {
+                this.Vmin = V1,
+                    this.Vmax = V2,
+                    this.rate = ((V2.x - V1.x) / (V2.y - V1.y)),
+                    this.rateRED = ((V2.RGB.r - V1.RGB.r) / (V2.y - V1.y)),
+                    this.rateGREEN = ((V2.RGB.g - V1.RGB.g) / (V2.y - V1.y)),
+                    this.rateBLUE = ((V2.RGB.b - V1.RGB.b) / (V2.y - V1.y))
+            }
+        }
+
+
+        let COUNT_name = 0
+        const CANVA = document.getElementById("telaDeDesenho");
+        const POS = document.getElementById('pos');
+        const TRIANGULOS_LIST = document.getElementById('triangulos-list');
+
+        const ctx = CANVA.getContext('2d');
+
+        let currentTriangulo = new Triangulo();
+        let triangulos = [];
+
+        CANVA.addEventListener('mousemove', (event) => {
+            POS.innerHTML = `(${event.clientX},${event.clientY})`;
+        });
+
+        CANVA.addEventListener('click', handleCanvasClick);
+
+
+
+        function handleCanvasClick(event) {
+            const x = event.clientX - CANVA.getBoundingClientRect().left;
+            const y = event.clientY - CANVA.getBoundingClientRect().top;
+
+
+
+            if (currentTriangulo.vertices.length > 0 && x == currentTriangulo.vertices[0].x && y == currentTriangulo.vertices[0].y) {
+                POS.innerHTML = 'Selecione um vértice diferente'
+            } else if (currentTriangulo.vertices.length > 1 && x == currentTriangulo.vertices[1].x && y == currentTriangulo.vertices[1].y) {
+                POS.innerHTML = 'Selecione um vértice diferente'
+            } else {
+                currentTriangulo.vertices.push(new Vertice(x, y, getColor()));
+
+                if (currentTriangulo.vertices.length === 3) {
+                    currentTriangulo.vertices.sort((a, b) => a.y - b.y)
+                    SetEdges(currentTriangulo)
+                    currentTriangulo.id = Date.now();
+                    currentTriangulo.name = `Triângulo ${COUNT_name++}`
+                    triangulos.push(currentTriangulo);
+                    currentTriangulo = new Triangulo();
+                    atualizarListaTriangulos();
+                    selectLastTriangle();
+                }
+            }
+        }
+
+
+
+        function SetEdges(poly) {
+
+            poly.arestas.push(new Edge(poly.vertices[0], poly.vertices[1]));
+            poly.arestas.push(new Edge(poly.vertices[1], poly.vertices[2]));
+            poly.arestas.push(new Edge(poly.vertices[2], poly.vertices[0]));
+
+        }
+
+
+        function fillPoly(poly) {
+
+            let VPx = 0,
+                colorOfVPx,
+                swaped = false
+
+
+            for (let y = poly.vertices[0].y, i = 0; y < poly.vertices[1].y; y++, i++) {
+
+
+                let intervalo = [
+                    Math.round(poly.arestas[0].Vmin.x + poly.arestas[0].rate * i),
+                    Math.round(poly.arestas[0].Vmin.x + poly.arestas[2].rate * i)
+                ]
+
+
+                VPx = intervalo[1]
+
+                if (intervalo[1] < intervalo[0]) {
+                    [intervalo[0], intervalo[1]] = [intervalo[1], intervalo[0]]
+                    swaped = true
+                }
+
+                let cor0 = setColor(poly.vertices[0].RGB, poly.arestas[0], i)
+                let cor2 = setColor(poly.vertices[0].RGB, poly.arestas[2], i)
+
+
+                colorOfVPx = cor2
+                if (swaped) {
+                    [cor0, cor2] = [cor2, cor0]
+                }
+
+
+                const delta = setDelta(cor0, cor2, intervalo[1] - intervalo[0])
+                scanLine(intervalo[0], intervalo[1], y, cor0, delta)
+            }
+
+            swaped = false
+
+            for (let y = poly.vertices[1].y, i = 0; y < poly.vertices[2].y; y++, i++) {
+
+
+                let intervalo = [
+                    Math.round(poly.arestas[1].Vmin.x + poly.arestas[1].rate * i),
+                    Math.round(VPx + poly.arestas[2].rate * i)
+                ]
+
+
+                if (intervalo[1] < intervalo[0]) {
+                    [intervalo[0], intervalo[1]] = [intervalo[1], intervalo[0]]
+                    swaped = true
+                }
+
+                let cor1 = setColor(poly.vertices[1].RGB, poly.arestas[1], i)
+                let cor2 = setColor(colorOfVPx, poly.arestas[2], i)
+
+                if (swaped) {
+                    [cor1, cor2] = [cor2, cor1]
+                }
+
+                const delta = setDelta(cor1, cor2, intervalo[1] - intervalo[0])
+                scanLine(intervalo[0], intervalo[1], y, cor1, delta)
+            }
+
+        }
+
+
+
+        function drawBorderLine(xStart, xEnd, y, color) {
+            setPixel(xStart, y, color);
+            setPixel(xEnd, y, color);
+        }
+
+
+        function setColor(cor, aresta, interaction) {
+            return {
+                r: cor.r + aresta.rateRED * interaction,
+                g: cor.g + aresta.rateGREEN * interaction,
+                b: cor.b + aresta.rateBLUE * interaction
+            }
+        }
+
+        function setDelta(corInit, corFinal, lenOfX) {
+            return {
+                r: (corFinal.r - corInit.r) / lenOfX,
+                g: (corFinal.g - corInit.g) / lenOfX,
+                b: (corFinal.b - corInit.b) / lenOfX
+            }
+        }
+
+        function scanLine(init, final, y, cor, delta) {
+            for (let j = init, k = 0; j < final; j++, k++) {
+                setPixel(j, y, `rgb(${cor.r + delta.r * k}, ${cor.g + delta.g * k}, ${cor.b + delta.b * k})`)
+            }
+        }
+
+
+        function setPixel(x, y, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, 1, 1);
+        }
+
+
+        function hexToRgb(hex) {
+            if (hex) {
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                return { r, g, b };
+            }
+        }
+
+
+        function getColor() {
+
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+
+        function drawAllTriangles() {
+
+            ctx.clearRect(0, 0, CANVA.width, CANVA.height);
+
+            for (let triangulo of triangulos) {
+
+
+                ctx.fillStyle = getColor();
+
+                fillPoly(triangulo)
+
+                ctx.beginPath();
+                ctx.moveTo(triangulo.vertices[0].x, triangulo.vertices[0].y);
+                ctx.lineTo(triangulo.vertices[1].x, triangulo.vertices[1].y);
+                ctx.lineTo(triangulo.vertices[2].x, triangulo.vertices[2].y);
+                ctx.lineTo(triangulo.vertices[0].x, triangulo.vertices[0].y);
+                ctx.closePath();
+                ctx.lineWidth = 2
+                ctx.strokeStyle = triangulo.arestaColor
+                ctx.stroke();
+
+            }
+        }
+
+        function atualizarListaTriangulos() {
+            TRIANGULOS_LIST.innerHTML = "";
+
+            let _triangulos = [...triangulos].reverse();
+
+            for (let i = 0; i < _triangulos.length; i++) {
+                const triangulo = _triangulos[i];
+
+                const listItem = document.createElement('li');
+                const textoTriangulo = document.createElement('span');
+                textoTriangulo.textContent = triangulo.name
+                listItem.dataset.id = triangulo.id;
+
+                listItem.appendChild(textoTriangulo);
+
+                listItem.addEventListener('click', () => {
+                    selectListItem(listItem);
+                });
+
+                TRIANGULOS_LIST.appendChild(listItem);
+            }
+
+            disablePainel()
+            updateTrianguloInfo();
+            drawAllTriangles();
+        }
+
+        function deleteTriangulo() {
+            const id = document.getElementById('idTriangulo').value;
+            const index = triangulos.findIndex(triangulo => triangulo.id == id);
+
+            if (index !== -1) {
+                triangulos.splice(index, 1);
+
+                atualizarListaTriangulos();
+
+                if (triangulos.length === 0) {
+                    resetCurrentTriangulo()
+                }
+            }
+        }
+
+        function selectListItem(selectedItem) {
+            const listItems = TRIANGULOS_LIST.getElementsByTagName('li');
+            for (const item of listItems) {
+                item.classList.remove('selected');
+            }
+
+            selectedItem.classList.add('selected');
+
+            enablePainel()
+
+            updateTrianguloInfo(selectedItem.dataset.id);
+        }
+
+        function selectLastTriangle() {
+            const listItems = TRIANGULOS_LIST.getElementsByTagName('li');
+            const lastItem = listItems[0];
+            selectListItem(lastItem);
+        }
+
+
+        function deleteAllTriangulos() {
+            triangulos = []
+            COUNT_name = 0
+            atualizarListaTriangulos()
+        }
+
+
+        function updateColorsOfSelected() {
+            const id = document.getElementById('idTriangulo').value;
+            const index = triangulos.findIndex(triangulo => triangulo.id == id)
+
+            for (let i = 0; i < 3; i++) {
+                const corNova = document.getElementById(`v${i + 1}`).value;
+                triangulos[index].vertices[i].atualizarCorNova(corNova);
+            }
+
+            triangulos[index].arestaColor = document.getElementById('aresta').value
+            triangulos[index].arestas = []
+            SetEdges(triangulos[index])
+            drawAllTriangles()
+        }
+
+        function updateTrianguloInfo(_id) {
+
+            const index = _id ? triangulos.findIndex(triangulo => triangulo.id == _id) : -1;
+
+            document.getElementById('idTriangulo').value = _id || '';
+            document.getElementById('nameTriangulo').innerText = (index !== -1) ? triangulos[index].name : (triangulos.length > 0) ? 'Selecione um triângulo' : 'Desenhe um triângulo';
+            document.getElementById('v1').value = (index !== -1) ? triangulos[index].vertices[0].color : '#ABABAB';
+            document.getElementById('v2').value = (index !== -1) ? triangulos[index].vertices[1].color : '#ABABAB';
+            document.getElementById('v3').value = (index !== -1) ? triangulos[index].vertices[2].color : '#ABABAB';
+            document.getElementById('aresta').value = (index !== -1) ? triangulos[index].arestaColor : '#ABABAB';
+        }
+
+        function enablePainel() {
+            document.getElementById('currentTriangulo').style.pointerEvents = 'auto';
+        }
+
+        function disablePainel() {
+            document.getElementById('currentTriangulo').style.pointerEvents = 'none';
+        }
+    </script>
+</body>
+
+</html>
